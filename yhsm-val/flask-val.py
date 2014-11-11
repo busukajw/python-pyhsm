@@ -1,14 +1,15 @@
 import sys
 import re
+import hmac
 import logging
+from requests import get
+from hashlib import sha1
+from base64 import b64decode, b64encode
 from logging.handlers import RotatingFileHandler
-from flask import Flask, url_for, jsonify, request
+from flask import Flask, url_for, request
 from flask.ext.sqlalchemy import SQLAlchemy
 sys.path.append('../Lib')
-from pyhsm import YHSM
-from pyhsm.yubikey import split_id_otp, validate_yubikey_with_aead
-from pyhsm.exception import YHSM_Error
-from pyhsm.aead_cmd import YHSM_GeneratedAEAD
+
 
 
 app = Flask(__name__)
@@ -109,52 +110,120 @@ def verify():
     else:
         app.logger.info(request.url)
         #check for required request arguments
-        if 'otp' in request.args:
-            otp = request.args.otp
-        else:
-            app.logger.error('Request argument OTP missing')
-            raise ValidationError('Request argument OTP missing')
-        if 'nonce' in request.args:
-            nonce = request.args.nonce
-            if not check_nonce(nonce):
-                app.logger.error('Invalid nonce')
-        else:
-            app.logger.error('Request argument nonce missing')
-        if 'id' in request.args:
-            client_id = request.args.id
-        else:
-            app.logger.error('Request argument ')
-        if 'timeout' in request.args:
-            timeout = request.args.timeout
-        else:
-            app.logger.info('Request argument timeoute missing')
-        if 'sl' in request.args:
-            sl = check_sl(request.args.sl)
-            if sl == 'Error':
-                app.logger.error('OTP %s Invalid sync level %s' % (otp, sl))
-                raise ValidationError('Invalid sync level %s', sl)
-        else:
-            app.logger.info('Request argument sl missing')
-            sl = app.config['__YKVAL_SYNC_DEFAULT_LEVEL__']
-        if 'timestamp' in request.args:
-            timestamp = request.args.timestamp
-        else:
-            app.logger.info('Request argument timeout missing')
+        v_args = check_parms(request.args)
+
 
 def check_sl(sl):
     if sl.lower() == 'fast':
         sl = app.config['__YKVAL_SYNC_FAST_LEVEL__']
     elif sl.lower() == 'secure':
         sl = app.config['__YKVAL_SYNC_SECURE_LEVEL__']
-    else sl in range(1, 100):
+    elif sl in range(1, 100):
         sl = sl
     return sl
 
-def check_client_info(client_id, api_key):
-    """Given a client_id and an api_key
-    :param client_id:
+
+def get_api_key(client_id):
+    """Given a client id lookup the ID and return the api key and base64 decode it
+    args: id:  client id
+    returns the raw api key"""
+    api_key = Clients.query.filter_by(id=client_id).first()
+    return b64decode(api_key)
+
+
+def verify_sig(orig_sig, gen_sig):
+    """
+    Verifiy the signature in a response message.  Take the provided signature and compare it against a generated
+    signiture
+    args:
+        orig_sig: this is the original signature as provided by the response message
+       gen_sig: signature generated locally from gen_hmac_sig
+    :return true or false
+    """
+    if orig_sig == gen_sig:
+        return True
+    else:
+        return False
+
+
+def gen_hmac_sig(http_opts, api_key):
+    """Generate a signature based on the returned http get options whilst  removing the h option if it is present.
+    The dictionary is then sorted alphabetically on the key use HMAC SHA1 to create the signature
+    args: key_pairs : a dictionary of key paris
+    returns: a bas64encoded string
+    """
+    sorted_list = [key + '=' + ''.join(http_opts[key])for key in sorted(http_opts.keys()) if key !='h)']
+    sig = hmac.new(api_key, '&'.join(sorted_list), sha1)
+    return b64encode(sig.digest())
+
+
+def lookup_otp(otp,keyserver):
+    """
+    given an otp send a request to the keyserver asking if the otp is valid
+    args:
+        otp: the otp :-)
+        keyserver: the ip address of the keyserver to use to check the otp
     :return:
     """
+    payload = {'otp': otp}
+    url = '/wsapi/decrypt'
+    r = get(url, params=payload)
+    print r.text
+
 
 def check_nonce(nonce):
+    """
+    Make sure that the nonce (random string) has not been used before to make sure that
+    :param nonce:
+    :return true or false:
+    """
     pass
+
+
+def check_parms(http_args):
+    """
+    Check the parameters to make sure that all parameters are correct
+    :param params:
+    :return:
+    """
+    req_opts = {}
+    if 'otp' in http_args:
+        req_opts['otp'] = http_args.otp
+    else:
+        app.logger.error('Request argument OTP missing')
+        raise ValidationError('Request argument OTP missing')
+    if 'nonce' in http_args:
+        req_opts['nonce'] = http_args.nonce
+        if not check_nonce(req_opts['nonce']):
+                app.logger.error('Invalid nonce')
+        else:
+            app.logger.error('Request argument nonce missing')
+    if id in request.args:
+        req_opts['id'] = http_args.id
+    else:
+        app.logger.error('Request argument ')
+    if 'timeout' in http_args:
+        req_opts['timeout'] = request.args.timeout
+    else:
+        app.logger.info('Request argument timeoute missing')
+    if 'sl' in http_args:
+        req_opts['sl'] = check_sl(http_args.sl)
+        if req_opts['sl'] == 'Error':
+            app.logger.error('OTP %s Invalid sync level %s' % (req_opts['otp'], req_opts['sl']))
+            raise ValidationError('Invalid sync level %s', req_opts['sl'])
+        else:
+            app.logger.info('Request argument sl missing')
+            sl = app.config['__YKVAL_SYNC_DEFAULT_LEVEL__']
+    if 'timestamp' in http_args:
+        req_opts['timestamp'] = http_args.timestamp
+    else:
+        app.logger.info('Request argument timeout missing')
+    return  req_opts
+
+
+if __name__ == '__main__':
+    db.create_all()
+    handler = RotatingFileHandler('val_server.log')
+    handler.setLevel(logging.DEBUG)
+    app.logger.addHandler(handler)
+    app.run()
