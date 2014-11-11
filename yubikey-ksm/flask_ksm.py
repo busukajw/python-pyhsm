@@ -96,14 +96,18 @@ def get_aead():
                 aead_obj.data = key_info.aead
                 aead_obj.nonce = key_info.nonce
                 result = validate_yubikey_with_aead(hsm, otp.encode('ascii', 'ignore'), aead_obj, key_info.keyhandle,)
-                otp_res = "OK counter=%04x low=%04x high=%02x use=%02x" % \
-                (result.use_ctr, result.ts_low, result.ts_high, result.session_ctr)
+                otp_res = {'result': 'OK',
+                           'counter': ("%04x" % result.use_ctr),
+                            'low': ("%04x" % result.ts_low),
+                            'high': ("%02x" % result.ts_high),
+                            'use': ("%02x" % result.session_ctr)
+                        }
             except YHSM_Error, e:
                 app.logger.warning("IN: %s, Validate FAILED: %s" % (otp, str(e)))
                 raise ValidationError('OTP %s, Validate Failed: %s' % (otp, str(e)))
 
         app.logger.info("OTP - SUCCESS from %s PT hsm %s" % (otp, otp_res))
-    return jsonify({'message': otp_res}), 200, {'Location': aead.get_url()}
+    return jsonify(otp_res), 200, {'Location': aead.get_url()}
 
 
 if __name__ == '__main__':
