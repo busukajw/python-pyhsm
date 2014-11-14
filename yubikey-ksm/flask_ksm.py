@@ -97,10 +97,10 @@ def get_aead():
                 aead_obj.nonce = key_info.nonce
                 result = validate_yubikey_with_aead(hsm, otp.encode('ascii', 'ignore'), aead_obj, key_info.keyhandle,)
                 otp_res = {'result': 'OK',
-                           'counter': ("%04x" % result.use_ctr),
-                            'low': ("%04x" % result.ts_low),
-                            'high': ("%02x" % result.ts_high),
-                            'use': ("%02x" % result.session_ctr)
+                           'counter': (result.use_ctr),
+                            'low': (result.ts_low),
+                            'high': (result.ts_high),
+                            'use': (result.session_ctr)
                         }
             except YHSM_Error, e:
                 app.logger.warning("IN: %s, Validate FAILED: %s" % (otp, str(e)))
@@ -115,4 +115,4 @@ if __name__ == '__main__':
     handler = RotatingFileHandler('file.log')
     handler.setLevel(logging.DEBUG)
     app.logger.addHandler(handler)
-    app.run()
+    app.run(port=5001)
