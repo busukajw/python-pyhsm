@@ -8,33 +8,13 @@ from datetime import datetime
 from calendar import timegm
 from base64 import b64decode, b64encode
 from logging.handlers import RotatingFileHandler
-
-from flask import Flask, url_for, jsonify, request
+from flask import jsonify, request
 from flask.ext.sqlalchemy import SQLAlchemy
 sys.path.append('../Lib')
 from pyhsm.yubikey import split_id_otp
 
+from . import api
 
-
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost:3306/val'
-app.config['HSM'] = 'yhsm://localhost:5348'
-app.config['KEY_HANDLE'] = '1'
-app.config['DEBUG'] = True
-
-# Specify how often the sync daemon awakens
-app.config['__YKVAL_SYNC_INTERVAL__'] = 10;
-# Specify how long the sync daemon will wait for response
-app.config['__YKVAL_SYNC_RESYNC_TIMEOUT__'] = 30;
-# Specify how old entries in the database should be considered aborted attempts
-app.config['__YKVAL_SYNC_OLD_LIMIT__'] = 10;
-
-# These are settings for the validation server.
-app.config['__YKVAL_SYNC_FAST_LEVEL__'] = 1;
-app.config['__YKVAL_SYNC_SECURE_LEVEL__'] = 40;
-app.config['__YKVAL_SYNC_DEFAULT_LEVEL__'] = 60;
-app.config['__YKVAL_SYNC_DEFAULT_TIMEOUT__'] = 1;
-app.config['__YKVAL_SYNC_POOL__'] = ['localhost','192.192.1.1']
 
 valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
 
@@ -44,74 +24,6 @@ db = SQLAlchemy(app)
 class ValidationError(ValueError):
     pass
 
-
-class Clients(db.Model):
-    __tablename__ = 'clients'
-    id = db.Column(db.Integer, primary_key=True, unique=True)
-    active = db.Column(db.Boolean, default=True)
-    created = db.Column(db.Integer, nullable=False)
-    secret = db.Column(db.String(60), nullable=False, default='')
-    email = db.Column(db.String(255))
-    notes = db.Column(db.String(100), default='')
-    otp = db.Column(db.String(100), default='')
-
-    def __init__(self, id, active, created, secret, email, notes, otp):
-        self.id = id
-        self.active = active
-        self.created = created
-        self.secret = secret
-        self.email = email
-        self.notes = notes
-        self.otp = otp
-
-    def __repr__(self):
-        return '<Clients %r>' % self.id
-
-    def get_url(self):
-        return url_for('get_client', _external=True)
-
-
-class Yubikeys(db.Model):
-    __tablename__ = 'yubikeys'
-    active = db.Column(db.Boolean, default=True)
-    created = db.Column(db.Integer,  nullable=False)
-    yk_publicname = db.Column(db.String(16), unique=True, nullable=False, primary_key=True)
-    yk_counter = db.Column(db.Integer, nullable=False)
-    yk_use = db.Column(db.Integer, nullable=False)
-    yk_low = db.Column(db.Integer, nullable=False)
-    yk_high = db.Column(db.Integer, nullable=False)
-    nonce = db.Column(db.String(40), default='')
-    notes = db.Column(db.String(100), default='', nullable=True)
-
-    def get_url(self):
-        return url_for('get_yubikeys', _external=True)
-
-"""    def __init__(self, active, created, yk_publicname, yk_counter, yk_use, yk_low, yk_high, nonce, notes):
-        self.active = active
-        self.created = created
-        self.yk_publicname = yk_publicname
-        self.yk_counter = yk_counter
-        self.yk_use = yk_use
-        self.yk_low = yk_low
-        self.yk_high = yk_high
-        self.nonce = nonce
-
-    def __repr__(self):
-        return '<Yubikeys %r>' % self.yk_publicname
-"""
-
-class Queue(db.Model):
-    __tablename__ = 'queue'
-    id = db.Column(db.Integer, primary_key=True)
-    queued = db.Column(db.Integer)
-    modified = db.Column(db.Integer)
-    server_nonce = db.Column(db.String(32))
-    otp = db.Column(db.String(100), nullable=False)
-    server = db.Column(db.String(100), nullable=False)
-    info = db.Column(db.String(256), nullable=False)
-
-    def get_url(self):
-        return url_for('get_queue', _external=True)
 
 
 class Sync():
@@ -130,7 +42,7 @@ class Sync():
         client_info = client.query.filter_by(id=client_id).first()
         return ()
 
-@app.errorhandler(ValidationError)
+@api.errorhandler(ValidationError)
 def bad_request(e):
     response = jsonify({'status': 400, 'error': 'bad request',
                         'message': e.args[0]})
@@ -138,7 +50,7 @@ def bad_request(e):
     return response
 
 
-@app.route('/wsapi/2.0/verify')
+@api.route('/wsapi/2.0/verify')
 def verify():
     """ """
     if not request.method == 'GET':
