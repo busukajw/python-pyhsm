@@ -1,24 +1,21 @@
 import sys
 import re
 import hmac
-import logging
 from requests import get
 from hashlib import sha1
 from datetime import datetime
 from calendar import timegm
 from base64 import b64decode, b64encode
-from logging.handlers import RotatingFileHandler
-from flask import jsonify, request
-from flask.ext.sqlalchemy import SQLAlchemy
+from flask import jsonify, request, current_app
 sys.path.append('../Lib')
 from pyhsm.yubikey import split_id_otp
 
 from . import api
+from .. import db
+from ..models import Yubikeys, Clients
 
 
 valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
-
-db = SQLAlchemy(app)
 
 
 class ValidationError(ValueError):
@@ -54,11 +51,11 @@ def bad_request(e):
 def verify():
     """ """
     if not request.method == 'GET':
-        app.logger.error('Invalid request method %s', request.method)
+        current_app.error('Invalid request method %s', request.method)
         raise ValidationError('Invalid requests method %s', request.method)
     else:
         otp_result = {}
-        app.logger.info(request.url)
+        current_app.logger.info(request.url)
         #check for required request arguments
         v_args = check_parms(request)
         if 'error' not in v_args:
@@ -72,7 +69,7 @@ def verify():
                 request_sync_info = otp_result
                 request_sync_info['nonce'] = v_args['nonce']
                 request_sync_info['public_id'] = public_id
-                app.logger.debug('local sync info %s' % local_sync_info)
+                current_app.logger.debug('local sync info %s' % local_sync_info)
                 if local_sync_info is None:
                     insert_lsyncdb(otp_result)
         else:
@@ -87,7 +84,7 @@ def insert_lsyncdb(sync_info):
     :param sync_info: has containing all the info that is required for syncing
     :return: success on a successful local syncdb update
     """
-    app.logger.debug(type(sync_info['low']))
+    current_app.logger.debug(type(sync_info['low']))
     yubikey = Yubikeys(yk_counter=sync_info['counter'],
                        created=create_timestamp(),
                        yk_publicname=sync_info['public_id'],
@@ -99,9 +96,9 @@ def insert_lsyncdb(sync_info):
                        )
     db.session.add(yubikey)
     if db.session.commit():
-        app.logger.info('SYNCDB local updated %s' % (sync_info['public_id']))
+        current_app.logger.info('SYNCDB local updated %s' % (sync_info['public_id']))
     else:
-        app.logger.info('SYNCDB local update failed %s' % (sync_info['public_id']))
+        current_app.logger.info('SYNCDB local update failed %s' % (sync_info['public_id']))
         raise ValidationError('Unable to update db')
     return True
 
@@ -134,9 +131,9 @@ def get_local_sync_record(public_id, otp):
 
 def check_sl(sl):
     if sl.lower() == 'fast':
-        sl = app.config['__YKVAL_SYNC_FAST_LEVEL__']
+        sl = api.config['__YKVAL_SYNC_FAST_LEVEL__']
     elif sl.lower() == 'secure':
-        sl = app.config['__YKVAL_SYNC_SECURE_LEVEL__']
+        sl = api.config['__YKVAL_SYNC_SECURE_LEVEL__']
     elif sl in range(1, 100):
         sl = sl
     return sl
@@ -185,7 +182,7 @@ def lookup_otp(otp,keyserver):
     :return:
     """
     payload = {'otp': otp}
-    app.logger.info('in lookup_otp')
+    current_app.logger.info('in lookup_otp')
     url = 'http://localhost:5001/wsapi/decrypt'
     r = get(url, params=payload)
     print r.json()
@@ -207,41 +204,41 @@ def check_parms(request):
     :return:
     """
     req_opts = {}
-    app.logger.info('URL arguments %s', request.args)
+    current_app.logger.info('URL arguments %s', request.args)
     try:
         req_opts['otp'] = request.args.get('otp')
         if not valid_key_content.match(req_opts['otp']):
             raise ValidationError('Invalid OTP')
-            app.logger.debug('WOW that was apparently valid')
+            current_app.logger.debug('WOW that was apparently valid')
     except AttributeError:
-        app.logger.error('Request argument OTP missing')
+        current_app.error('Request argument OTP missing')
         raise ValidationError('Required argument OTP missing')
     try:
         req_opts['nonce'] = request.args['nonce']
     except KeyError:
-        app.logger.error('Request argument nonce missing')
+        current_app.error('Request argument nonce missing')
         req_opts['error'] = 'nonce'
         raise ValidationError('required argument nonce missing')
     try:
         req_opts['id'] = request.args['id']
     except KeyError:
-        app.logger.error('required argument id missing')
+        current_app.error('required argument id missing')
         raise ValidationError('required argument id missing')
     if 'timeout' in request.args:
         req_opts['timeout'] = request.args.timeout
     else:
-        app.logger.info('Request argument timeoute missing')
+        current_app.logger.info('Request argument timeoute missing')
     if 'sl' in request.args:
         req_opts['sl'] = check_sl(request.args.sl)
         if req_opts['sl'] == 'Error':
-            app.logger.error('OTP %s Invalid sync level %s' % (req_opts['otp'], req_opts['sl']))
+            current_app.error('OTP %s Invalid sync level %s' % (req_opts['otp'], req_opts['sl']))
         else:
-            app.logger.info('Request argument sl missing')
+            current_app.logger.info('Request argument sl missing')
             sl = app.config['__YKVAL_SYNC_DEFAULT_LEVEL__']
     if 'timestamp' in request.args:
         req_opts['timestamp'] = request.args.timestamp
     else:
-        app.logger.info('Request argument timestamp missing')
+        current_app.logger.info('Request argument timestamp missing')
     return req_opts
 
 
@@ -252,10 +249,3 @@ def create_timestamp():
     """
     d = datetime.utcnow()
     return timegm(d.utctimetuple())
-
-if __name__ == '__main__':
-    db.create_all()
-    handler = RotatingFileHandler('val_server.log')
-    handler.setLevel(logging.DEBUG)
-    app.logger.addHandler(handler)
-    app.run()

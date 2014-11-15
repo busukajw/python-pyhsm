@@ -1,8 +1,10 @@
 import os
 
+
 basedir = os.path.abspath(os.path.dirname(__file__))
 DEBUG = True
 
+LOG_FILE='var.log'
 
 SQLALCHEMY_DATABASE_URI = 'mysql://root:@localhost:3306/val'
 HSM = 'yhsm://localhost:5348'
