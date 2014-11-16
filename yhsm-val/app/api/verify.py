@@ -12,7 +12,7 @@ from pyhsm.yubikey import split_id_otp
 
 from . import api
 from .. import db
-from ..models import Yubikeys, Clients
+from ..models import Clients, Yubikeys
 
 
 valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
@@ -22,22 +22,6 @@ class ValidationError(ValueError):
     pass
 
 
-
-class Sync():
-    """process used to check whether an otp is has already been used or is a new otp.
-        The first step is to check the local database if the otp is a replayed otp.  Then try and check
-        the remote pool of servers
-     """
-    def __init__(self, sync_servers):
-        self._sync_servers = sync_servers
-
-    def sync_servers(self):
-        return self._sync_servers
-
-    def get_client_info(self, client_id):
-        client = Clients()
-        client_info = client.query.filter_by(id=client_id).first()
-        return ()
 
 @api.errorhandler(ValidationError)
 def bad_request(e):
@@ -77,6 +61,10 @@ def verify():
     return jsonify(otp_result), 200, {'Location': request.path}
 
 
+@api.route('/yubikeys/<public_id>', methods=['GET'])
+def get_yubikey(public_id):
+    return jsonify(Yubikeys.query.get_or_404(public_id).export_data())
+
 def insert_lsyncdb(sync_info):
     """
     Take a hash with publicid,nonce and otp sync counters and either add a new record or update
@@ -84,8 +72,8 @@ def insert_lsyncdb(sync_info):
     :param sync_info: has containing all the info that is required for syncing
     :return: success on a successful local syncdb update
     """
-    current_app.logger.debug(type(sync_info['low']))
-    yubikey = Yubikeys(yk_counter=sync_info['counter'],
+    yubikey = Yubikeys(active=True,
+                       yk_counter=sync_info['counter'],
                        created=create_timestamp(),
                        yk_publicname=sync_info['public_id'],
                        nonce=sync_info['nonce'],
@@ -95,9 +83,10 @@ def insert_lsyncdb(sync_info):
                        notes='',
                        )
     db.session.add(yubikey)
-    if db.session.commit():
+    try:
+        db.session.commit()
         current_app.logger.info('SYNCDB local updated %s' % (sync_info['public_id']))
-    else:
+    except:
         current_app.logger.info('SYNCDB local update failed %s' % (sync_info['public_id']))
         raise ValidationError('Unable to update db')
     return True

@@ -1,4 +1,5 @@
 from . import db
+from flask import url_for
 
 
 class Clients(db.Model):
@@ -24,7 +25,7 @@ class Clients(db.Model):
         return '<Clients %r>' % self.id
 
     def get_url(self):
-        return url_for('get_client', _external=True)
+        return url_for('api.get_client', _external=True)
 
 
 class Yubikeys(db.Model):
@@ -39,9 +40,6 @@ class Yubikeys(db.Model):
     nonce = db.Column(db.String(40), default='')
     notes = db.Column(db.String(100), default='', nullable=True)
 
-    def get_url(self):
-        return url_for('get_yubikeys', _external=True)
-
     def __init__(self, active, created, yk_publicname, yk_counter, yk_use, yk_low, yk_high, nonce, notes):
         self.active = active
         self.created = created
@@ -55,6 +53,15 @@ class Yubikeys(db.Model):
 
     def __repr__(self):
         return '<Yubikeys %r>' % self.yk_publicname
+
+    def get_url(self):
+        return url_for('api.get_yubikey', public_id=self.yk_publicname)
+
+    def export_data(self):
+        return {
+            'self_url': self.get_url(),
+            'yk_publicname': self.yk_publicname
+        }
 
 
 class Queue(db.Model):
