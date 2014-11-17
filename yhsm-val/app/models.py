@@ -27,6 +27,18 @@ class Clients(db.Model):
     def get_url(self):
         return url_for('api.get_client', _external=True)
 
+    def export_data(self):
+        return {
+            'self_url': self.get_url(),
+            'id': self.id,
+            'active': self.active,
+            'created': self.secret,
+            'otp': self.otp
+            }
+
+    def import_data(self):
+        pass
+
 
 class Yubikeys(db.Model):
     __tablename__ = 'yubikeys'
@@ -55,13 +67,26 @@ class Yubikeys(db.Model):
         return '<Yubikeys %r>' % self.yk_publicname
 
     def get_url(self):
-        return url_for('api.get_yubikey', public_id=self.yk_publicname)
+        return url_for('api.get_yubikey', public_id=self.yk_publicname, _external=True)
 
     def export_data(self):
         return {
             'self_url': self.get_url(),
-            'yk_publicname': self.yk_publicname
+            'yk_publicname': self.yk_publicname,
+            'yk_counter': self.yk_counter,
+            'yk_user': self.yk_use,
+            'yk_low': self.yk_low,
+            'yk_high': self.yk_high,
+            'nonce': self.nonce,
+            'active': self.active,
+            'created': self.created,
         }
+
+    def import_data(self, data):
+        if not all(k in data for k in ('yk_public_name', 'yk_counter', 'yk_user', 'yk_low', 'yk_high', 'nonce', 'active')):
+            print "Not all present"
+        else:
+            return self
 
 
 class Queue(db.Model):

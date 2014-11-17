@@ -61,9 +61,25 @@ def verify():
     return jsonify(otp_result), 200, {'Location': request.path}
 
 
+@api.route('/yubikeys/', methods=['GET'])
+def get_yubikeys():
+    return jsonify({'yubikeys': [yubikey.export_data() for yubikey in Yubikeys.query.all()]})
+
 @api.route('/yubikeys/<public_id>', methods=['GET'])
 def get_yubikey(public_id):
     return jsonify(Yubikeys.query.get_or_404(public_id).export_data())
+
+@api.route('/yubikeys/', methods=['PUT'])
+def new_yubikey():
+    yubikey = Yubikeys()
+    yubikey.import_data(request.json())
+    db.session.add(yubikey)
+    db.session.commit()
+    return jsonify({}, 201, {'Location': yubikey.get_url()})
+
+@api.route('/clients/<client_id>', methods=['GET'])
+def get_client(client_id):
+    return jsonify(Clients.query.get_or_404(client_id).export_data())
 
 def insert_lsyncdb(sync_info):
     """
