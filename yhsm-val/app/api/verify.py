@@ -12,16 +12,11 @@ from pyhsm.yubikey import split_id_otp
 
 from . import api
 from .. import db
+from ..exceptions import ValidationError
 from ..models import Clients, Yubikeys
 
 
 valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
-
-
-class ValidationError(ValueError):
-    pass
-
-
 
 @api.errorhandler(ValidationError)
 def bad_request(e):
@@ -72,7 +67,7 @@ def get_yubikey(public_id):
 @api.route('/yubikeys/', methods=['PUT'])
 def new_yubikey():
     yubikey = Yubikeys()
-    yubikey.import_data(request.json())
+    yubikey.import_data(request.json)
     db.session.add(yubikey)
     db.session.commit()
     return jsonify({}, 201, {'Location': yubikey.get_url()})

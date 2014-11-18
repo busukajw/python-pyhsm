@@ -1,5 +1,7 @@
 from . import db
-from flask import url_for
+from flask import url_for, current_app
+from exceptions import ValidationError
+from voluptuous import Schema, Required, All, Length, MultipleInvalid
 
 
 class Clients(db.Model):
@@ -12,7 +14,7 @@ class Clients(db.Model):
     notes = db.Column(db.String(100), default='')
     otp = db.Column(db.String(100), default='')
 
-    def __init__(self, id, active, created, secret, email, notes, otp):
+    def __init__(self, id=None, active=None, created=None, secret=None, email=None, notes=None, otp=None):
         self.id = id
         self.active = active
         self.created = created
@@ -36,8 +38,20 @@ class Clients(db.Model):
             'otp': self.otp
             }
 
-    def import_data(self):
-        pass
+    def import_data(self, data):
+        schema = Schema ({
+            Required('id'): All(int),
+            Required('active'): All(int),
+            Required('secret'): All(unicode),
+            'email': unicode,
+            'notes': unicode,
+            Required('otp'): All(unicode)
+        })
+        try:
+            schema(data)
+        except MultipleInvalid as e:
+            raise ValidationError(str(e))
+        return self
 
 
 class Yubikeys(db.Model):
@@ -52,7 +66,8 @@ class Yubikeys(db.Model):
     nonce = db.Column(db.String(40), default='')
     notes = db.Column(db.String(100), default='', nullable=True)
 
-    def __init__(self, active, created, yk_publicname, yk_counter, yk_use, yk_low, yk_high, nonce, notes):
+    def __init__(self, active=None, created=None, yk_publicname=None, yk_counter=None, yk_use=None,
+                 yk_low=None, yk_high=None, nonce=None, notes=None):
         self.active = active
         self.created = created
         self.yk_publicname = yk_publicname
@@ -83,10 +98,22 @@ class Yubikeys(db.Model):
         }
 
     def import_data(self, data):
-        if not all(k in data for k in ('yk_public_name', 'yk_counter', 'yk_user', 'yk_low', 'yk_high', 'nonce', 'active')):
-            print "Not all present"
-        else:
-            return self
+        schema = Schema({
+        Required('yk_public_name'): All(unicode),
+        Required('yk_counter'): All(int),
+        Required('yk_user'): All(int),
+        Required('yk_low'): All(int),
+        Required('yk_high'): All(int),
+        Required('nonce'): All(str),
+        Required('active'): All(int),
+        })
+        current_app.logger.info(data)
+
+        try:
+            schema(data)
+        except MultipleInvalid as e:
+            raise ValidationError(str(e))
+        return self
 
 
 class Queue(db.Model):
@@ -102,3 +129,18 @@ class Queue(db.Model):
     def get_url(self):
         return url_for('get_queue', _external=True)
 
+    def import_data(self,data):
+        schema = Schema({
+            Required('id'): All(int),
+            Required('queued'): All(int),
+            Required('modified'): All(int),
+            Required('server_nonce'): All(unicode),
+            Required('otp'): All(unicode),
+            Required('server'): All(unicode),
+            Required('info'): All(unicode)
+        })
+        try:
+            schema(data)
+        except MultipleInvalid as e:
+            raise ValidationError(str(e))
+        return self
