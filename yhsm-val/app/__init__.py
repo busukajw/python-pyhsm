@@ -12,7 +12,7 @@ def create_app(config_name):
     """
 
     app = Flask(__name__)
-    #apply config
+    # apply config
     cfg = os.path.join(os.getcwd(), 'config', config_name + '.py')
     app.config.from_pyfile(cfg)
     # init  database
@@ -20,7 +20,7 @@ def create_app(config_name):
     handler = RotatingFileHandler(app.config['LOG_FILE'])
     handler.setLevel(logging.DEBUG)
     app.logger.addHandler(handler)
-    #register blueprints
+    # register blueprints
     from .api import api as api_blueprint
     app.register_blueprint(api_blueprint)
 

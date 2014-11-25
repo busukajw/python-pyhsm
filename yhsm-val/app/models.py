@@ -1,5 +1,6 @@
 from . import db
 from flask import url_for, current_app
+from utils import create_timestamp
 from exceptions import ValidationError
 from voluptuous import Schema, Required, All, Length, MultipleInvalid
 
@@ -68,6 +69,9 @@ class Yubikeys(db.Model):
 
     def __init__(self, active=None, created=None, yk_publicname=None, yk_counter=None, yk_use=None,
                  yk_low=None, yk_high=None, nonce=None, notes=None):
+        if created is None:
+            created = create_timestamp()
+        self.created = created
         self.active = active
         self.created = created
         self.yk_publicname = yk_publicname
