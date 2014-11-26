@@ -3,6 +3,7 @@ import re
 from requests import get, codes
 from base64 import b64decode
 from flask import jsonify, request, current_app
+from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 sys.path.append('../Lib')
 from pyhsm.yubikey import split_id_otp
 from voluptuous import Schema, Invalid, Required, All
@@ -158,11 +159,23 @@ def otp_valid_chars(msg=None):
     """
     def f(v):
         valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
-        if not valid_key_content.match(v):
+        if valid_key_content.match(v):
             return str(v)
         else:
             raise Invalid(msg or ("Incorrect OTP"))
     return f
+
+
+def valid_client_id(msg=None):
+    def f(v):
+        try:
+            Clients.query.filter_by(id=v).one()
+        except MultipleResultsFound:
+            raise Invalid('Multiple Client ID returned')
+        except NoResultFound:
+            raise Invalid('No Client ID returned')
+    return f
+
 
 def check_parms(request):
     """
@@ -174,46 +187,12 @@ def check_parms(request):
     schema = Schema({
         Required('otp'): All(otp_valid_chars()),
         Required('nonce'): All(str),
-
-
+        Required('id'): All(valid_client_id()),
+        'timeout': All(int),
+        'h': All(str),
+        'timestamp': All(str),
+        'sl': All(str),
     })
-    req_opts = {}
-    current_app.logger.info('URL arguments %s', request.args)
-    try:
-        req_opts['otp'] = request.args.get('otp')
-        if not valid_key_content.match(req_opts['otp']):
-            raise ValidationError('Invalid OTP')
-            current_app.logger.debug('WOW that was apparently valid')
-    except AttributeError:
-        current_app.error('Request argument OTP missing')
-        raise ValidationError('Required argument OTP missing')
-    try:
-        req_opts['nonce'] = request.args['nonce']
-    except KeyError:
-        current_app.logger.error('Request argument nonce missing')
-        req_opts['error'] = 'nonce'
-        raise ValidationError('required argument nonce missing')
-    try:
-        req_opts['id'] = request.args['id']
-    except KeyError:
-        current_app.logger.error('required argument id missing')
-        raise ValidationError('required argument id missing')
-    if 'timeout' in request.args:
-        req_opts['timeout'] = request.args.timeout
-    else:
-        current_app.logger.info('Request argument timeoute missing')
-    if 'sl' in request.args:
-        req_opts['sl'] = check_sl(request.args.sl)
-        if req_opts['sl'] == 'Error':
-            current_app.logger.error('OTP %s Invalid sync level %s' % (req_opts['otp'], req_opts['sl']))
-        else:
-            current_app.logger.info('Request argument sl missing')
-            sl = app.config['__YKVAL_SYNC_DEFAULT_LEVEL__']
-    if 'timestamp' in request.args:
-        req_opts['timestamp'] = request.args.timestamp
-    else:
-        current_app.logger.info('Request argument timestamp missing')
-    if 'h' in request.args:
-        req_opts['h'] = request.args['h']
+
     return req_opts
 
