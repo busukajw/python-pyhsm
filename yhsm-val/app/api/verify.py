@@ -5,15 +5,13 @@ from base64 import b64decode
 from flask import jsonify, request, current_app
 sys.path.append('../Lib')
 from pyhsm.yubikey import split_id_otp
-
+from voluptuous import Schema, Invalid, Required, All
 from .sync import LocalSync
 from . import api
 from .. import db
 from ..exceptions import ValidationError
 from ..models import Clients, Yubikeys
 
-
-valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
 
 
 @api.errorhandler(ValidationError)
@@ -152,12 +150,33 @@ def check_nonce(nonce):
     pass
 
 
+def otp_valid_chars(msg=None):
+    """
+    Check that the characters are valid possible chars and that the length of the otp is correct
+    :param otp: the supplied otp
+    :return: True if the otp pass's test
+    """
+    def f(v):
+        valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
+        if not valid_key_content.match(v):
+            return str(v)
+        else:
+            raise Invalid(msg or ("Incorrect OTP"))
+    return f
+
 def check_parms(request):
     """
     Check the parameters to make sure that all parameters are correct
     :param params:
     :return:
     """
+
+    schema = Schema({
+        Required('otp'): All(otp_valid_chars()),
+        Required('nonce'): All(str),
+
+
+    })
     req_opts = {}
     current_app.logger.info('URL arguments %s', request.args)
     try:

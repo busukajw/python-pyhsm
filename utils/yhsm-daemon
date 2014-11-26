@@ -20,6 +20,7 @@ import socket
 import json
 import threading
 import argparse
+sys.path.append('../Lib')
 import pyhsm.stick
 import daemon
 import os

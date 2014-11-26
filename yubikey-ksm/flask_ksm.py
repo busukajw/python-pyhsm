@@ -17,7 +17,6 @@ app.config['KEY_HANDLE'] = '1'
 app.config['DEBUG'] = True
 
 db = SQLAlchemy(app)
-
 valid_key_content = re.compile('^[cbdefghijklnrtuv]{32,48}$')
 
 
