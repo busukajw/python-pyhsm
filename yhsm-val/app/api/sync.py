@@ -14,7 +14,7 @@ class LocalSync():
     def __init__(self):
         pass
 
-    def get_client_id(client_id):
+    def get_client_id(self, client_id):
         """
         Fetch the client ID
         :param client_id:
