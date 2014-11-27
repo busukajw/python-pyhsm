@@ -1,8 +1,8 @@
 from flask import current_app
-from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy.orm.exc import NoResultFound
 from hashlib import sha1
 import hmac
-from base64 import b64encode
+from base64 import b64encode, b64decode
 
 from ..models import Yubikeys, Clients
 from .. import db
@@ -11,22 +11,11 @@ from ..utils import create_timestamp
 
 
 class LocalSync():
-    def __init__(self):
-        pass
+    def __init__(self, client_data):
+        self.client_data = client_data
 
-    def get_client_id(self, client_id):
-        """
-        Fetch the client ID
-        :param client_id:
-        :return: the client id
-        """
-        try:
-            client = Clients.query.filter_by(id=client_id).one()
-        except MultipleResultsFound:
-            raise ValidationError('More than one Client found matching ID %s' % client_id)
-        except NoResultFound:
-            raise ValidationError('Client ID %s does not exist' % client_id)
-        return client.id
+    def client_data(self):
+        return self.client_data
 
     def insert_lsyncdb(self, sync_info):
         """
@@ -87,23 +76,18 @@ class LocalSync():
                 'nonce': yubikey.nonce,
                 'otp': otp}
 
-    def local_nonce_check(self, lsync_nonce, lsync_otp, rsync_nonce, rsync_otp):
+    def local_counters_equal(self, lsync_info, otp_sync_info):
         """
-        compare locally stored nonce and otp with clients nonce and otp is they are identical the the check fails
-        :param lsync_nonce:
-        :param lsync_otp
-        :param rsync_nonce:
-        :param rsync_otp:
-        :return True if all is ok and False if info is identical:
+        Check to see is the session counter and use counter stored in db are the same as the ones provided in the
+         otp.
+        :param lsync_info: dict containing the locally stored counters
+        :param otp_sync_info: dict containing the otp generated counters
+        :return: return true if counters are identical
         """
-        if lsync_otp == rsync_otp and lsync_nonce == rsync_nonce:
-            r = False
-        else:
-            current_app.logger.debug('local_replay_check passed')
-            r = True
-        return r
+        if lsync_info['counter'] is otp_sync_info['counter'] and lsync_info['use'] is otp_sync_info['use']:
+            return True
 
-    def local_counter_check(self, lsync_info, otp_sync_info):
+    def counters_greater_equal(self, lsync_info, otp_sync_info):
         """
          Check the local counters against the the otp generated counters and return false if the local counters are
          greater than or equal than the otp generated counters
@@ -112,10 +96,7 @@ class LocalSync():
         :return: False if test fails and true if the test passes
         """
         if lsync_info['counter'] >= otp_sync_info['counter'] or lsync_info['use'] >= otp_sync_info['use']:
-            r = False
-        else:
-            r = True
-        return r
+            return True
 
     def verify_sig(self, orig_sig, gen_sig):
         """
@@ -131,12 +112,19 @@ class LocalSync():
         else:
             return False
 
-    def gen_hmac_sig(self, http_opts, api_key):
+    def gen_hmac_sig(self):
         """Generate a signature based on the returned http get options whilst  removing the h option if it is present.
         The dictionary is then sorted alphabetically on the key use HMAC SHA1 to create the signature
-        args: key_pairs : a dictionary of key paris
         returns: a bas64encoded string
         """
-        sorted_list = [key + '=' + ''.join(http_opts[key]) for key in sorted(http_opts.keys()) if key != 'h)']
+        api_key = self._get_api_key()
+        sorted_list = [key + '=' + ''.join(self.client_data) for key in sorted(self.client_data.keys()) if key != 'h)']
         sig = hmac.new(api_key, '&'.join(sorted_list), sha1)
         return b64encode(sig.digest())
+
+    def _get_api_key(self):
+        """Given a client id lookup the ID and return the api key and base64 decode it
+        args: id:  client id
+        returns the raw api key"""
+        api_key = Clients.query.filter_by(id=self.client_data['id']).one()
+        return b64decode(api_key)
