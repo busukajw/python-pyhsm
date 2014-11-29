@@ -11,11 +11,15 @@ from ..utils import create_timestamp
 
 
 class LocalSync():
-    def __init__(self, client_data):
+    def __init__(self, client_data, sync_servers):
         self.client_data = client_data
+        self.sync_servers = sync_servers
 
     def client_data(self):
         return self.client_data
+
+    def sync_servers(self):
+        return self.sync_servers
 
     def insert_lsyncdb(self, sync_info):
         """

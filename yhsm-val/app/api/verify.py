@@ -30,7 +30,7 @@ def verify():
         raise ValidationError('Invalid requests method %s', request.method)
     else:
         v_args = check_parms(request)
-        sync = LocalSync(v_args)
+        sync = LocalSync(v_args,current_app.config['__YKVAL_SYNC_POOL__'])
         if 'h' in sync.client_data:
             gen_sig = sync.gen_hmac_sig()
         # call remote ksm and check for valid otp
@@ -48,7 +48,7 @@ def verify():
             # check to see if client nonce and client otp session use and counter are identical in local DB
             if otp_params['nonce'] is local_params['nonce'] and sync.local_counter_equal(local_params, otp_params):
                 raise ValidationError('Replayed OTP')
-            if sync.counters_greater_equal(local_params,otp_params):
+            if sync.counters_greater_equal(local_params, otp_params):
                 raise ValidationError('Replayed OTP')
             else:
                 sync.insert_lsyncdb(otp_params)
