@@ -2,18 +2,29 @@ from flask import current_app
 from sqlalchemy.orm.exc import NoResultFound
 from hashlib import sha1
 import hmac
+from requests import get
 from base64 import b64encode, b64decode
-
+from pyhsm.yubikey import split_id_otp
 from ..models import Yubikeys, Clients
 from .. import db
 from ..exceptions import ValidationError
 from ..utils import create_timestamp
 
 
-class LocalSync():
+class Sync():
     def __init__(self, client_data, sync_servers):
         self.client_data = client_data
+        otp_params = self._generate_otp_params()
+        self.otp_params = otp_params
+        local_params = self._get_local_sync_record()
+        self.local_params = local_params
         self.sync_servers = sync_servers
+
+    def local_params(self):
+        return self.local_params
+
+    def otp_params(self):
+        return self.otp_params
 
     def client_data(self):
         return self.client_data
@@ -47,10 +58,10 @@ class LocalSync():
             raise ValidationError('Unable to update db')
         return True
 
-
-    def get_local_sync_record(self,public_id, otp):
+    def _get_local_sync_record(self):
         """
         lookup the latest sync settings for any given public_id and return a hash of those settings
+        :rtype : object
         :param public_id:
         :param otp:
         :return: a hash public_id: public_id
@@ -62,6 +73,8 @@ class LocalSync():
                         otp: otp
 
         """
+        public_id = self.otp_params['public_id']
+        otp = self.otp_params['otp']
         try:
             yubikey = Yubikeys.query.filter_by(yk_publicname=public_id).one()
             current_app.logger.debug('ID found %s' % yubikey)
@@ -80,25 +93,25 @@ class LocalSync():
                 'nonce': yubikey.nonce,
                 'otp': otp}
 
-    def local_counters_equal(self, lsync_info, otp_sync_info):
+    def local_counters_equal(self):
         """
         Check to see is the session counter and use counter stored in db are the same as the ones provided in the
          otp.
-        :param lsync_info: dict containing the locally stored counters
-        :param otp_sync_info: dict containing the otp generated counters
         :return: return true if counters are identical
         """
+        lsync_info = self.local_params
+        otp_sync_info = self.otp_params
         if lsync_info['counter'] is otp_sync_info['counter'] and lsync_info['use'] is otp_sync_info['use']:
             return True
 
-    def counters_greater_equal(self, lsync_info, otp_sync_info):
+    def counters_greater_equal(self):
         """
          Check the local counters against the the otp generated counters and return false if the local counters are
          greater than or equal than the otp generated counters
-        :param lsync_info: dict containing the locally stored counters
-        :param otp_sync_info: dict containgin the otp generated counters
         :return: False if test fails and true if the test passes
         """
+        lsync_info = self.local_params
+        otp_sync_info = self.otp_params
         if lsync_info['counter'] >= otp_sync_info['counter'] or lsync_info['use'] >= otp_sync_info['use']:
             return True
 
@@ -132,3 +145,34 @@ class LocalSync():
         returns the raw api key"""
         api_key = Clients.query.filter_by(id=self.client_data['id']).one()
         return b64decode(api_key)
+
+    def add_queue(self):
+        local_params = self.client_data
+        time = create_timestamp()
+
+    def _generate_otp_params(self):
+        """
+        using the otp in the client_data generate all of the otp_params needed
+        'public_id', 'otp', 'nonce',counters, 'use', 'high', 'low'
+        :return: a dict which has all of the otp_params
+        """
+        public_id, _ = split_id_otp(self.client_data['otp'])
+        otp_result = self._lookup_otp()
+        otp_params = {'public_id': public_id,
+                      'nonce': self.client_data['nonce'],
+                      'otp': self.client_data['otp']}
+        return otp_params.udpate(otp_result)
+
+    def _lookup_otp(self):
+        """
+        given an otp send a request to the keyserver asking if the otp is valid
+        args:
+            otp: the otp :-)
+            keyserver: the ip address of the keyserver to use to check the otp
+        :return:
+        """
+        payload = {'otp': self.client_data['otp']}
+        current_app.logger.info('in lookup_otp')
+        url = 'http://localhost:5001/wsapi/decrypt'
+        r = get(url, params=payload)
+        return r.json()

@@ -4,9 +4,8 @@ from requests import get, codes
 from flask import jsonify, request, current_app
 from sqlalchemy.orm.exc import MultipleResultsFound, NoResultFound
 sys.path.append('../Lib')
-from pyhsm.yubikey import split_id_otp
 from voluptuous import Schema, Invalid, Required, All, MultipleInvalid
-from .sync import LocalSync
+from .sync import Sync
 from . import api
 from .. import db
 from ..exceptions import ValidationError
@@ -30,28 +29,15 @@ def verify():
         raise ValidationError('Invalid requests method %s', request.method)
     else:
         v_args = check_parms(request)
-        sync = LocalSync(v_args,current_app.config['__YKVAL_SYNC_POOL__'])
+        sync = Sync(v_args, current_app.config['__YKVAL_SYNC_POOL__'])
         if 'h' in sync.client_data:
             gen_sig = sync.gen_hmac_sig()
-        # call remote ksm and check for valid otp
-        otp_result = lookup_otp(sync.client_data['otp'], '127.0.0.1:5001')
-        if not otp_result['result'] == 'OK':
-            raise ValidationError('OTP lookup ERROR %s' % (otp_result['message']))
+        if sync.otp_params['nonce'] is sync.local_params['nonce'] and sync.local_counter_equal():
+            raise ValidationError('Replayed OTP')
+        if sync.counters_greater_equal():
+            raise ValidationError('Replayed OTP')
         else:
-            public_id, otp = split_id_otp(sync.client_data['otp'])
-            otp_params = {'public_id': public_id,
-                          'otp': otp,
-                          'nonce': sync.client_data['nonce']}
-            otp_params.update(otp_result)
-            local_params = sync.get_local_sync_record(public_id, otp)
-            current_app.logger.debug('local sync info %s' % local_params)
-            # check to see if client nonce and client otp session use and counter are identical in local DB
-            if otp_params['nonce'] is local_params['nonce'] and sync.local_counter_equal(local_params, otp_params):
-                raise ValidationError('Replayed OTP')
-            if sync.counters_greater_equal(local_params, otp_params):
-                raise ValidationError('Replayed OTP')
-            else:
-                sync.insert_lsyncdb(otp_params)
+            sync.insert_lsyncdb(otp_params)
     return jsonify(otp_result), 200, {'Location': request.path}
 
 
@@ -108,22 +94,6 @@ def make_request(url, host, payload=None, http_type='GET', timeout=2):
     else:
         result = r.json()
     return result
-
-
-def lookup_otp(otp, keyserver):
-    """
-    given an otp send a request to the keyserver asking if the otp is valid
-    args:
-        otp: the otp :-)
-        keyserver: the ip address of the keyserver to use to check the otp
-    :return:
-    """
-    payload = {'otp': otp}
-    current_app.logger.info('in lookup_otp')
-    url = 'http://localhost:5001/wsapi/decrypt'
-    r = get(url, params=payload)
-    return r.json()
-
 
 def otp_valid_chars(msg=None):
     """
