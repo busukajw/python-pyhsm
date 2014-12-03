@@ -5,19 +5,17 @@ import hmac
 from requests import get
 from base64 import b64encode, b64decode
 from pyhsm.yubikey import split_id_otp
-from ..models import Yubikeys, Clients
+from ..models import Yubikeys, Clients, Queue
 from .. import db
 from ..exceptions import ValidationError
-from ..utils import create_timestamp
+from ..utils import create_timestamp, server_nonce
 
 
 class Sync():
     def __init__(self, client_data, sync_servers):
         self.client_data = client_data
-        otp_params = self._generate_otp_params()
-        self.otp_params = otp_params
-        local_params = self._get_local_sync_record()
-        self.local_params = local_params
+        self.otp_params = self._generate_otp_params()
+        self.local_params = self._get_local_sync_record(self.otp_params)
         self.sync_servers = sync_servers
 
     def local_params(self):
@@ -58,7 +56,7 @@ class Sync():
             raise ValidationError('Unable to update db')
         return True
 
-    def _get_local_sync_record(self):
+    def _get_local_sync_record(self, otp_params):
         """
         lookup the latest sync settings for any given public_id and return a hash of those settings
         :rtype : object
@@ -73,8 +71,8 @@ class Sync():
                         otp: otp
 
         """
-        public_id = self.otp_params['public_id']
-        otp = self.otp_params['otp']
+        public_id = otp_params['public_id']
+        otp = otp_params['otp']
         try:
             yubikey = Yubikeys.query.filter_by(yk_publicname=public_id).one()
             current_app.logger.debug('ID found %s' % yubikey)
@@ -83,7 +81,7 @@ class Sync():
             yubikey = Yubikeys(active=1, yk_publicname=public_id, yk_counter=-1, yk_high=-1, yk_low=-1, yk_use=-1)
             db.session.add(yubikey)
             db.session.commit()
-            self.get_local_sync_record(public_id, otp)
+            self.get_local_sync_record(otp_params)
 
         return {'public_id': public_id,
                 'counter': yubikey.yk_counter,
@@ -93,15 +91,13 @@ class Sync():
                 'nonce': yubikey.nonce,
                 'otp': otp}
 
-    def local_counters_equal(self):
+    def local_counters_equal(self,lsync_info, otpsync_info):
         """
         Check to see is the session counter and use counter stored in db are the same as the ones provided in the
          otp.
         :return: return true if counters are identical
         """
-        lsync_info = self.local_params
-        otp_sync_info = self.otp_params
-        if lsync_info['counter'] is otp_sync_info['counter'] and lsync_info['use'] is otp_sync_info['use']:
+        if lsync_info['counter'] is otpsync_info['counter'] and lsync_info['use'] is otpsync_info['use']:
             return True
 
     def counters_greater_equal(self):
@@ -146,9 +142,17 @@ class Sync():
         api_key = Clients.query.filter_by(id=self.client_data['id']).one()
         return b64decode(api_key)
 
-    def add_queue(self):
-        local_params = self.client_data
-        time = create_timestamp()
+    def add_queue(self, otp_params, local_params, sync_servers):
+        info = {'otp_params': otp_params, 'local_params': local_params}
+        for server in sync_servers:
+            queue_entry = Queue(queued=create_timestamp(), modified=otp_params['modified'],info=info,
+                                server_nonce=server_nonce(), otp=otp_params['otp'], server=server,)
+            db.session.add(queue_entry)
+         if db.session.commit():
+             return True
+
+
+
 
     def _generate_otp_params(self):
         """
@@ -160,7 +164,8 @@ class Sync():
         otp_result = self._lookup_otp()
         otp_params = {'public_id': public_id,
                       'nonce': self.client_data['nonce'],
-                      'otp': self.client_data['otp']}
+                      'otp': self.client_data['otp'],
+                      'modified': create_timestamp()}
         return otp_params.udpate(otp_result)
 
     def _lookup_otp(self):

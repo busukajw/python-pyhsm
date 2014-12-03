@@ -32,7 +32,8 @@ def verify():
         sync = Sync(v_args, current_app.config['__YKVAL_SYNC_POOL__'])
         if 'h' in sync.client_data:
             gen_sig = sync.gen_hmac_sig()
-        if sync.otp_params['nonce'] is sync.local_params['nonce'] and sync.local_counter_equal():
+        if sync.otp_params['nonce'] is sync.local_params['nonce'] and \
+                sync.local_counters_equal(sync.local_params, sync.otp_params):
             raise ValidationError('Replayed OTP')
         if sync.counters_greater_equal():
             raise ValidationError('Replayed OTP')
