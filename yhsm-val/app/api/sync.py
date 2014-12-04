@@ -8,7 +8,7 @@ from pyhsm.yubikey import split_id_otp
 from ..models import Yubikeys, Clients, Queue
 from .. import db
 from ..exceptions import ValidationError
-from ..utils import create_timestamp, server_nonce
+from ..utils import create_timestamp, create_nonce
 
 
 class Sync():
@@ -17,6 +17,7 @@ class Sync():
         self.otp_params = self._generate_otp_params()
         self.local_params = self._get_local_sync_record(self.otp_params)
         self.sync_servers = sync_servers
+        self.server_nonce = create_nonce()
 
     def local_params(self):
         return self.local_params
@@ -29,6 +30,9 @@ class Sync():
 
     def sync_servers(self):
         return self.sync_servers
+
+    def server_nonce(self):
+        return self.server_nonce
 
     def insert_lsyncdb(self, sync_info):
         """
@@ -91,7 +95,7 @@ class Sync():
                 'nonce': yubikey.nonce,
                 'otp': otp}
 
-    def local_counters_equal(self,lsync_info, otpsync_info):
+    def local_counters_equal(self, lsync_info, otpsync_info):
         """
         Check to see is the session counter and use counter stored in db are the same as the ones provided in the
          otp.
@@ -145,14 +149,11 @@ class Sync():
     def add_queue(self, otp_params, local_params, sync_servers):
         info = {'otp_params': otp_params, 'local_params': local_params}
         for server in sync_servers:
-            queue_entry = Queue(queued=create_timestamp(), modified=otp_params['modified'],info=info,
-                                server_nonce=server_nonce(), otp=otp_params['otp'], server=server,)
+            queue_entry = Queue(queued=create_timestamp(), modified=otp_params['modified'], info=info,
+                                server_nonce=self.server_nonce, otp=otp_params['otp'], server=server)
             db.session.add(queue_entry)
-         if db.session.commit():
-             return True
-
-
-
+        if db.session.commit():
+            return True
 
     def _generate_otp_params(self):
         """
@@ -181,3 +182,12 @@ class Sync():
         url = 'http://localhost:5001/wsapi/decrypt'
         r = get(url, params=payload)
         return r.json()
+
+    def sync(self, req_ans, timeout):
+        """
+
+        :param req_ans:
+        :param timeout:
+        :return:
+        """
+        sync_info = Queue.filter_by(modified=self.otp_params['modified'], server_nonce=self.server_nonce)

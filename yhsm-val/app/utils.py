@@ -13,7 +13,7 @@ def create_timestamp():
     return timegm(d.utctimetuple())
 
 
-def server_nonce():
+def create_nonce():
     """
     Create a random string
     :return:  a random string

@@ -38,7 +38,16 @@ def verify():
         if sync.counters_greater_equal():
             raise ValidationError('Replayed OTP')
         else:
-            sync.insert_lsyncdb(otp_params)
+            sync.insert_lsyncdb(sync.otp_params)
+        if sync.add_queue(sync.otp_params, sync.local_params, sync.sync_servers):
+            current_app.logger.info('%s Added sync requests to queue' % sync.otp_params['otp'])
+        else:
+            current_app.logger.error('%s Unable to add sync request to queue' % sync.otp_params['otp'])
+            raise ValidationError('%s Unable to add sync request to Queue' % sync.otp_params['otp'])
+        no_servers = len(sync.sync_servers)
+        req_ans = no_servers/(sync.client_data['sl']*100)
+        if req_ans > 0:
+            sync.sync(req_ans, 2)
     return jsonify(otp_result), 200, {'Location': request.path}
 
 
